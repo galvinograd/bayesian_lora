@@ -115,7 +115,7 @@ def main(cfg: DictConfig):
         llm_params = dict(cfg.llm) | {"use_peft": False}
         model, _, _ = setup_llm(**llm_params)
         model = peft.PeftModel.from_pretrained(model, map_param_path, is_trainable=True)
-        model = model.to(device)
+        # model = model.to(device)
 
     #
     # 4. Evaluate the log likelihood
@@ -222,7 +222,7 @@ def main(cfg: DictConfig):
     # cfg.llm.model_kwargs.attn_implementation = "sdpa"
     model, tokenizer, gen_cfg = setup_llm(**cfg.llm)
     model = peft.PeftModel.from_pretrained(model, map_param_path, is_trainable=True)
-    model = model.to(device)
+    # model = model.to(device)
 
     val_loader = dset.loader(
         is_sc=cfg.llm.is_sc,
@@ -266,6 +266,10 @@ def main(cfg: DictConfig):
                 model, batch_inputs, output_callback=output_callback
             )
             pred_mu.append(f_mu.clone().cpu())
+
+            for T in [batch_inputs, jacobian, factors, s2]:
+                if hasattr(T, 'device') and T.device != device:
+                    T = T.to(device)
 
             # Predict the output logit variances
             f_var = variance(

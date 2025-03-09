@@ -1,0 +1,82 @@
+# @package _global_
+
+# Configuration for evaluating Qwen2.5-3B on Winogrande small
+defaults:
+  - base_config
+  - opt: adamw
+  - dset: winogrande
+  - llm: qwen
+  - override llm/peft: lora
+#  - override llm/quantization: 4bit
+  - _self_
+
+notes: |-
+  Evaluation of Qwen2.5-3B on Winogrande small dataset using Bayesian LoRA.
+
+log_level: INFO
+run_every_step: false
+print_config: false
+use_tqdm: true
+
+# MAP training parameters - reduced for efficiency
+map_lr: 5e-5
+train_steps: 5000  # Reduced from 1000 to save time
+
+# The rank used for the large Kronecker factors
+n_kfac: 10  # Reduced from 10 to save memory
+
+# The Kronecker factor edge size over which to use the low-rank approximation
+lr_threshold: 100
+
+# Initial variance of the prior variance
+prior_var: 0.1
+
+# Used to create a unique result directory
+task_name: ${dset.name}_${llm.name}
+
+hydra:
+  run:
+    dir: ${paths.root_dir}/example_outputs/${task_name}
+
+# Random seed for reproducible runs
+seed: 42
+
+# Dataset configuration overrides
+dset:
+  train_bs: 4  # Reduced batch size to save memory
+  eval_bs: 4
+  train_split: train
+  eval_split: validation
+  # Using a subset of Winogrande small
+  train_subset: 640  # Winogrande small has 640 examples, using a subset to save time
+  eval_subset: 1767   # Evaluate on a smaller subset
+
+# Tokenizer configuration
+tokenizer_run_kwargs:
+  padding: true
+  truncation: true
+  return_tensors: "pt"
+  max_length: 256  # Reduced from 512 to save memory
+
+# LLM configuration overrides
+llm:
+  use_peft: true
+  use_quant: false
+
+  model_kwargs:
+    # Use float32 instead of bfloat16 to avoid precision issues
+    torch_dtype: float32
+    low_cpu_mem_usage: true
+    device_map: 'auto'
+
+  # kwargs used when setting up the tokenizer
+  tokenizer_kwargs:
+    padding_side: left
+
+  # The special tokens - note that we're not setting pad_token here
+  # The setup_llm function will automatically set pad_token = eos_token if pad_token is None
+  tokenizer_special_tokens: {}
+
+  peft:
+    r: 8  # LoRA rank
+    bias: "none" 

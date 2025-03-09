@@ -152,7 +152,19 @@ def model_evidence(
         if "lora" in k.lower() and v.requires_grad
     }
     for param in lora_params.values():
+        if hasattr(map_norms, 'device') and map_norms.device != param.device:
+            param = param.to(map_norms.device)
         map_norms += t.linalg.norm(param)
+
+    if hasattr(s2, 'device') and s2.device != map_norms.device:
+        s2 = s2.to(map_norms.device)
+        
+    if hasattr(LL, 'device') and LL.device != map_norms.device:
+        LL = LL.to(map_norms.device)
+        
+    if hasattr(logdet, 'device') and logdet.device != map_norms.device:
+        logdet = logdet.to(map_norms.device)
+    
     model_evidence = LL + 1 / s2 * map_norms + 0.5 * logdet
     return model_evidence
 
@@ -188,8 +200,8 @@ def jacobian_mean(
         target_ids: selects specific model outputs. Leave this as None if
             either a) you wish to consider all model outputs or b) you are
             providing an output_callback to post-process the model output.
-        is_sc: whether this is a sequence classification model. Can omit if
-            providing an output_callback
+        is_s2s: whether this is an s2s model. Can omit if providing an
+            output_callback
         output_callback: a function that takes the results of
             ``model(**batch_inputs)`` and returns the logits of interest
     Returns:
@@ -281,7 +293,7 @@ def variance(
         ), f"Could not find weight corresponding to kronecker factor {k}"
         # ---------------------------------------------------------------------
 
-        G = jacobian.get(g_key).squeeze().to(device)
+        G = jacobian.get(g_key).squeeze()
         # Ensure that G is [batch, n_logits, d, n_lora] sized at all times
         if G.shape[-1] != n_lora:
             G = G.mT
@@ -301,12 +313,19 @@ def variance(
 
         B_expanded = B.mT[None, None, :]  # [1, 1, n_kfc, d]
         L_expanded = L[None, None, :]  # [1, 1, n_lora, n_lora]
-        BGL = B_expanded @ G.to(dtype=B.dtype) @ L_expanded
+        
+        B_expanded = B_expanded.to(device=device)
+        L_expanded = L_expanded.to(device=device)
+        G = G.to(device=device)
+        
+        BGL = B_expanded @ G @ L_expanded
         BGL_vec = BGL.flatten(-2).to(dtype=t.float64)  # [batch, n_logits, M_size]
         term_2 = s2.pow(2.0) * BGL_vec @ t.linalg.inv(M) @ BGL_vec.mT
         assert term_2.shape == (batch_size, n_logits, n_logits)
 
-        var_matrix += term_1 - term_2.to(var_matrix.dtype)
+        term_1 = term_1.to(device=device)
+        term_2 = term_2.to(dtype=var_matrix.dtype, device=device)
+        var_matrix += term_1 - term_2
 
         logging.debug(f"After layer {k}, variance is {var_matrix}")
-    return var_matrix
+    return var_matrix.to(device=device)
